@@ -131,9 +131,64 @@ st.info("Estado: interfaz preparada. La lectura automática de precios y los avi
 
 tabs = st.tabs(["🎯 Oportunidades", "🔔 Alertas", "🧮 Calculadora", "📚 Historial", "📥 Datos"])
 
-with tabs[0]:
+with with tabs[0]:
     st.subheader("Oportunidades")
+
+    if st.button("🔄 Actualizar precios desde FUTBIN", type="primary"):
+        try:
+            from provider_adapter import fetch_prices
+
+            with st.spinner("Consultando precios de FUTBIN..."):
+                new_prices = fetch_prices()
+
+            if new_prices.empty:
+                st.warning(
+                    "FUTBIN no ha devuelto precios. "
+                    "Puede que la fuente no esté disponible."
+                )
+            else:
+                required = {
+                    "observed_at", "platform", "player_name",
+                    "card_type", "price", "source"
+                }
+
+                if not required.issubset(new_prices.columns):
+                    st.error("El conector ha devuelto columnas inesperadas.")
+                else:
+                    new_prices = new_prices[list(required)].copy()
+                    new_prices["price"] = pd.to_numeric(
+                        new_prices["price"], errors="coerce"
+                    )
+                    new_prices = new_prices.dropna(subset=["price"])
+                    new_prices = new_prices[new_prices["price"] > 0]
+                    new_prices["price"] = new_prices["price"].astype(int)
+
+                    if new_prices.empty:
+                        st.warning("No se han encontrado precios válidos.")
+                    else:
+                        with connect() as con:
+                            new_prices[
+                                [
+                                    "observed_at", "platform", "player_name",
+                                    "card_type", "price", "source"
+                                ]
+                            ].to_sql(
+                                "price_observations",
+                                con,
+                                if_exists="append",
+                                index=False
+                            )
+
+                        st.success(
+                            f"Se han guardado {len(new_prices)} precios."
+                        )
+                        st.rerun()
+
+        except Exception as e:
+            st.error(f"No se pudieron actualizar los precios: {e}")
+
     prices = load_prices()
+
     if prices.empty:
         st.warning("Todavía no hay observaciones de precios. Importa un CSV real en la pestaña Datos.")
     else:
